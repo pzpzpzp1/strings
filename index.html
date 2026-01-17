@@ -152,6 +152,9 @@
 
     // Typical viola vibrating string length ~356mm (varies by instrument).
     const VIOLA_SCALE_LENGTH_MM = 356;
+    // Empirical tweak: reduce perceived spacing on-screen.
+    // 0.5 means "50% of the physically-calibrated spacing".
+    const SPACING_SCALE = 0.5;
 
     // Requested fret pattern: whole, whole, half, whole steps => semitone offsets.
     // Open (0) then +2, +4, +5, +7 semitones.
@@ -275,7 +278,7 @@
       // cssPxPerMm = devicePxPerMm / dpr
       const dpr = window.devicePixelRatio || 1;
       const devicePxPerMm = PHONE_PROFILE.displayPpi / 25.4;
-      const cssPxPerMm = devicePxPerMm / dpr;
+      const cssPxPerMm = (devicePxPerMm / dpr) * SPACING_SCALE;
       const fingerboardMm = fingerboardH / cssPxPerMm;
 
       // We keep the physical viola scale length for spacing computations.
