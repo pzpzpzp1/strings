@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0c10" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Phone Viola</title>
   <style>
     :root{
@@ -51,6 +54,25 @@
       overflow:hidden;
       touch-action:none;
       user-select:none;
+    }
+    .ui-control{
+      position:absolute;
+      z-index:10;
+      pointer-events:auto;
+      touch-action: manipulation;
+      user-select:none;
+      -webkit-user-select:none;
+    }
+    #exitBtn{
+      left:12px;
+      top:50%;
+      transform: translateY(-50%);
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(43,50,64,.9);
+      background: rgba(18,20,32,.75);
+      color: var(--fg);
+      backdrop-filter: blur(10px);
     }
     #playfield{
       position:absolute;
@@ -125,6 +147,8 @@
   <div id="viola" class="screen">
     <div id="playfield"></div>
 
+    <button id="exitBtn" class="ui-control">Back</button>
+
     <div id="fingerboard"></div>
     <div id="bowzone"></div>
   </div>
@@ -160,6 +184,7 @@
     const home = $("home");
     const viola = $("viola");
     const startBtn = $("startBtn");
+    const exitBtn = $("exitBtn");
     const fingerboardEl = $("fingerboard");
     const bowzoneEl = $("bowzone");
 
@@ -287,7 +312,11 @@
       const regionW = regionRight - regionLeft;
       const margin = Math.max(18, Math.floor(regionW * 0.08));
       const usableW = Math.max(1, regionW - margin * 2);
-      const xs = [0,1,2,3].map(i => regionLeft + margin + (usableW * (i / 3)));
+      const baseXs = [0,1,2,3].map(i => regionLeft + margin + (usableW * (i / 3)));
+      // Shift the whole set slightly left by ~half the gap between adjacent strings.
+      const gap = usableW / 3;
+      const shiftLeft = gap / 2;
+      const xs = baseXs.map(x => x - shiftLeft);
 
       layout = { w, h, fingerboardH, bowH, dpr, cssPxPerMm, fingerboardMm, effectiveScaleMm, maxSemitone, xs, regionLeft, regionRight };
 
@@ -483,10 +512,58 @@
       screen.classList.add("active");
     }
 
+    async function enterFullscreen(){
+      // Best-effort: Fullscreen API is widely supported on Android browsers,
+      // but limited on iOS Safari (may fail silently or reject).
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) return false;
+      try{
+        await req.call(el);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function exitFullscreen(){
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (!exit) return false;
+      try{
+        await exit.call(document);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function stopAllAudioAndTouches(){
+      for (const id of [...bowPointers.keys()]) stopBow(id);
+      fingerPointers.clear();
+      for (const id of [...touchDots.keys()]) removeDot(id);
+      for (let s = 0; s < semitoneByString.length; s++) semitoneByString[s] = 0;
+    }
+
     startBtn.addEventListener("click", () => {
       show(viola);
       computeLayout();
       ensureAudio();
+      // Must be triggered from a user gesture.
+      enterFullscreen();
+    });
+
+    // Make sure tapping "Back" doesn't get treated as playing.
+    for (const evt of ["pointerdown","pointermove","pointerup","pointercancel","click","touchstart","touchend"]){
+      exitBtn.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }, { passive:false });
+    }
+
+    exitBtn.addEventListener("click", async () => {
+      stopAllAudioAndTouches();
+      await exitFullscreen();
+      show(home);
     });
 
     viola.addEventListener("pointerdown", handlePointerDown, { passive:false });
