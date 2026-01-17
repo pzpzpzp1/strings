@@ -13,3 +13,4 @@ Wherever the user presses should be mapped to the closest string location at hal
 ### Misc
 Make sure to look up the correct spacings for a viola so the digital interface is correct. 
 
+The entire interface should be controlled by a single html file
