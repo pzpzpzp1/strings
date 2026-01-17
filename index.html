@@ -461,9 +461,9 @@
 
       if (fingerPointers.has(e.pointerId)){
         if (inFingerboard(y)){
-          const prev = fingerPointers.get(e.pointerId);
-          // Keep string assignment stable once down (feels more instrument-like)
-          fingerPointers.set(e.pointerId, { stringIndex: prev.stringIndex, x, yInFingerboard: y });
+          // Allow sliding sideways onto a different string.
+          const stringIndex = nearestStringIndex(x);
+          fingerPointers.set(e.pointerId, { stringIndex, x, yInFingerboard: y });
           showDot(e.pointerId, x, y, false);
         } else {
           fingerPointers.delete(e.pointerId);
@@ -552,19 +552,30 @@
       enterFullscreen();
     });
 
-    // Make sure tapping "Back" doesn't get treated as playing.
-    for (const evt of ["pointerdown","pointermove","pointerup","pointercancel","click","touchstart","touchend"]){
+    async function leaveViola(){
+      stopAllAudioAndTouches();
+      await exitFullscreen();
+      show(home);
+    }
+
+    // Make sure tapping "Back" doesn't get treated as playing, and make it work on mobile
+    // by using pointer/touch handlers (some mobile contexts won't reliably dispatch "click").
+    for (const evt of ["pointerdown","pointermove","pointerup","pointercancel","touchstart","touchmove","touchend","touchcancel"]){
       exitBtn.addEventListener(evt, (e) => {
         e.preventDefault();
         e.stopPropagation();
       }, { passive:false });
     }
-
-    exitBtn.addEventListener("click", async () => {
-      stopAllAudioAndTouches();
-      await exitFullscreen();
-      show(home);
-    });
+    exitBtn.addEventListener("pointerup", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      leaveViola();
+    }, { passive:false });
+    exitBtn.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      leaveViola();
+    }, { passive:false });
 
     viola.addEventListener("pointerdown", handlePointerDown, { passive:false });
     viola.addEventListener("pointermove", handlePointerMove, { passive:false });
