@@ -52,29 +52,6 @@
       touch-action:none;
       user-select:none;
     }
-    #hud{
-      position:absolute;
-      left:12px; right:12px; top:12px;
-      display:flex;
-      gap:10px;
-      align-items:flex-start;
-      justify-content:space-between;
-      pointer-events:none;
-    }
-    #hud .pill{
-      pointer-events:none;
-      background: rgba(18,20,32,.75);
-      border:1px solid rgba(43,50,64,.9);
-      backdrop-filter: blur(10px);
-      border-radius:12px;
-      padding:10px 12px;
-      font-size:12px;
-      color: var(--muted);
-      line-height:1.25;
-      min-width: 160px;
-    }
-    #hud .pill b{ color: var(--fg); font-weight:600; }
-    #hud .right{ text-align:right; min-width: 190px; }
     #backBtn{
       position:absolute;
       left:12px; bottom:12px;
@@ -158,19 +135,6 @@
   <div id="viola" class="screen">
     <div id="playfield"></div>
 
-    <div id="hud">
-      <div class="pill">
-        <div><b id="phoneName">Samsung S24 Ultra</b></div>
-        <div>Fingerboard: <b id="fbInfo">—</b></div>
-        <div>Fret (semitones): <b id="fretInfo">0</b></div>
-      </div>
-      <div class="pill right">
-        <div>String: <b id="stringInfo">—</b></div>
-        <div>Note: <b id="noteInfo">—</b></div>
-        <div>Freq: <b id="freqInfo">—</b> Hz</div>
-      </div>
-    </div>
-
     <button id="backBtn">Back</button>
 
     <div id="fingerboard"></div>
@@ -181,7 +145,9 @@
     // Phone profile used for "calibration" (approx published physical dimensions for S24 Ultra).
     const PHONE_PROFILE = {
       name: "Samsung S24 Ultra",
-      physical: { heightMm: 162.3, widthMm: 79.0 },
+      // Galaxy S24 Ultra display density is widely published as ~505 ppi.
+      // We use this + devicePixelRatio to estimate CSS px per mm on the device.
+      displayPpi: 505,
     };
 
     // Typical viola vibrating string length ~356mm (varies by instrument).
@@ -207,19 +173,14 @@
     const fingerboardEl = $("fingerboard");
     const bowzoneEl = $("bowzone");
 
-    const phoneNameEl = $("phoneName");
-    const fbInfoEl = $("fbInfo");
-    const fretInfoEl = $("fretInfo");
-    const stringInfoEl = $("stringInfo");
-    const noteInfoEl = $("noteInfo");
-    const freqInfoEl = $("freqInfo");
-
     let layout = null;
     let fretYs = [];
 
-    // Track fingerboard pointers (upper 80%): choose the "furthest down" press (max y).
-    const fingerPointers = new Map();
-    let currentSemitone = 0;
+    // Track fingerboard pointers (upper 80%) *per string*.
+    // Each pointer is assigned to its nearest string when it goes down.
+    // For each string, we use the "furthest down" press (max y) as the active fingering.
+    const fingerPointers = new Map(); // pointerId -> { stringIndex, x, yInFingerboard }
+    const semitoneByString = [0, 0, 0, 0];
 
     // Track bow pointers (bottom 20%): each pointer can start a note on a string.
     const bowPointers = new Map();
@@ -244,6 +205,14 @@
     // d = L - L / 2^(n/12)
     function distanceFromNutMm(nSemi, Lmm){
       return Lmm - (Lmm / Math.pow(2, nSemi / 12));
+    }
+
+    // Inverse: semitone number from nut-to-finger distance d.
+    // n = 12 * log2(L / (L - d))
+    function semitoneFromDistanceMm(dMm, Lmm){
+      const denom = (Lmm - dMm);
+      if (denom <= 0) return Infinity;
+      return 12 * (Math.log(Lmm / denom) / Math.log(2));
     }
 
     function makeVoice(freq){
@@ -301,19 +270,32 @@
       const fingerboardH = Math.floor(h * 0.80);
       const bowH = h - fingerboardH;
 
-      // Approx px-per-mm based on selected phone profile.
-      const pxPerMm = h / PHONE_PROFILE.physical.heightMm;
-      const availableFingerboardMm = fingerboardH / pxPerMm;
-      const scaleFactor = Math.min(1, availableFingerboardMm / VIOLA_SCALE_LENGTH_MM);
-      const effectiveScaleMm = VIOLA_SCALE_LENGTH_MM * scaleFactor;
+      // Calibration using published PPI + devicePixelRatio:
+      // devicePxPerMm = (ppi / 25.4)
+      // cssPxPerMm = devicePxPerMm / dpr
+      const dpr = window.devicePixelRatio || 1;
+      const devicePxPerMm = PHONE_PROFILE.displayPpi / 25.4;
+      const cssPxPerMm = devicePxPerMm / dpr;
+      const fingerboardMm = fingerboardH / cssPxPerMm;
 
-      fretYs = SEMITONES.map(semi => distanceFromNutMm(semi, effectiveScaleMm) * pxPerMm);
+      // We keep the physical viola scale length for spacing computations.
+      // The fingerboard view only shows the portion that fits on-screen.
+      const effectiveScaleMm = VIOLA_SCALE_LENGTH_MM;
+
+      // Maximum playable semitone given visible fingerboard length (clamped).
+      const maxSemiFloat = semitoneFromDistanceMm(Math.min(fingerboardMm, effectiveScaleMm * 0.999), effectiveScaleMm);
+      const maxSemitone = Math.max(0, Math.min(36, Math.floor(maxSemiFloat)));
+
+      // Visualize only the requested "C-scale" markers, but allow all semitones to be playable.
+      fretYs = SEMITONES
+        .filter(semi => semi <= maxSemitone)
+        .map(semi => distanceFromNutMm(semi, effectiveScaleMm) * cssPxPerMm);
 
       const margin = Math.max(22, Math.floor(w * 0.10));
       const usableW = w - margin * 2;
       const xs = [0,1,2,3].map(i => margin + (usableW * (i / 3)));
 
-      layout = { w, h, fingerboardH, bowH, pxPerMm, effectiveScaleMm, xs };
+      layout = { w, h, fingerboardH, bowH, dpr, cssPxPerMm, fingerboardMm, effectiveScaleMm, maxSemitone, xs };
 
       fingerboardEl.style.top = "0px";
       fingerboardEl.style.height = fingerboardH + "px";
@@ -321,9 +303,6 @@
       bowzoneEl.style.height = bowH + "px";
 
       drawScene();
-
-      fbInfoEl.textContent = `${Math.round(effectiveScaleMm)}mm scaled to ${fingerboardH}px`;
-      phoneNameEl.textContent = PHONE_PROFILE.name;
     }
 
     function drawScene(){
@@ -361,33 +340,34 @@
     }
 
     function nearestSemitoneForYInFingerboard(yInFingerboard){
-      let bestIdx = 0, bestD = Infinity;
-      for (let i = 0; i < fretYs.length; i++){
-        const d = Math.abs(yInFingerboard - fretYs[i]);
-        if (d < bestD){ bestD = d; bestIdx = i; }
-      }
-      return SEMITONES[bestIdx];
+      // Convert fingerboard y (CSS px) -> physical distance in mm -> semitone (half-step),
+      // then round to nearest semitone.
+      const dMm = (yInFingerboard / layout.cssPxPerMm);
+      const semiFloat = semitoneFromDistanceMm(Math.max(0, Math.min(dMm, layout.effectiveScaleMm * 0.999)), layout.effectiveScaleMm);
+      const semi = Math.round(semiFloat);
+      return Math.max(0, Math.min(layout.maxSemitone, semi));
     }
 
-    function updateCurrentSemitoneFromPointers(){
-      if (fingerPointers.size === 0){
-        currentSemitone = 0;
-        fretInfoEl.textContent = String(currentSemitone);
-        return;
-      }
-      let maxY = -Infinity;
-      for (const p of fingerPointers.values()){
-        if (p.y > maxY) maxY = p.y;
-      }
-      currentSemitone = nearestSemitoneForYInFingerboard(maxY);
-      fretInfoEl.textContent = String(currentSemitone);
+    function updateSemitoneByStringFromPointers(){
+      // Reset then compute per-string max-y fingering
+      for (let s = 0; s < semitoneByString.length; s++) semitoneByString[s] = 0;
 
+      const maxYByString = [ -Infinity, -Infinity, -Infinity, -Infinity ];
+      for (const p of fingerPointers.values()){
+        if (p.yInFingerboard > maxYByString[p.stringIndex]) maxYByString[p.stringIndex] = p.yInFingerboard;
+      }
+      for (let s = 0; s < 4; s++){
+        if (maxYByString[s] !== -Infinity){
+          semitoneByString[s] = nearestSemitoneForYInFingerboard(maxYByString[s]);
+        }
+      }
+
+      // Update any active bow voices to match their *own string's* fingering.
       for (const v of bowPointers.values()){
-        const freq = v.baseFreq * semitoneToRatio(currentSemitone);
+        const semi = semitoneByString[v.stringIndex] || 0;
+        const freq = v.baseFreq * semitoneToRatio(semi);
         v.voice.setFreq(freq);
         v.freq = freq;
-        noteInfoEl.textContent = noteNameFromMidi(v.baseMidi + currentSemitone);
-        freqInfoEl.textContent = freq.toFixed(2);
       }
     }
 
@@ -417,14 +397,11 @@
 
       const baseFreq = s.freq;
       const baseMidi = s.midi;
-      const freq = baseFreq * semitoneToRatio(currentSemitone);
+      const semi = semitoneByString[sIdx] || 0;
+      const freq = baseFreq * semitoneToRatio(semi);
       const voice = makeVoice(freq);
 
       bowPointers.set(pointerId, { stringIndex: sIdx, baseFreq, baseMidi, voice, freq });
-
-      stringInfoEl.textContent = `${s.name} string`;
-      noteInfoEl.textContent = noteNameFromMidi(baseMidi + currentSemitone);
-      freqInfoEl.textContent = freq.toFixed(2);
     }
 
     function stopBow(pointerId){
@@ -433,17 +410,6 @@
       v.voice.stop();
       bowPointers.delete(pointerId);
 
-      if (bowPointers.size === 0){
-        stringInfoEl.textContent = "—";
-        noteInfoEl.textContent = "—";
-        freqInfoEl.textContent = "—";
-      } else {
-        const any = bowPointers.values().next().value;
-        const s = STRINGS[any.stringIndex];
-        stringInfoEl.textContent = `${s.name} string`;
-        noteInfoEl.textContent = noteNameFromMidi(any.baseMidi + currentSemitone);
-        freqInfoEl.textContent = any.freq.toFixed(2);
-      }
     }
 
     function handlePointerDown(e){
@@ -454,9 +420,11 @@
       const y = e.clientY;
 
       if (inFingerboard(y)){
-        fingerPointers.set(e.pointerId, { x, y });
+        const yInFingerboard = y;
+        const stringIndex = nearestStringIndex(x);
+        fingerPointers.set(e.pointerId, { stringIndex, x, yInFingerboard });
         showDot(e.pointerId, x, y, false);
-        updateCurrentSemitoneFromPointers();
+        updateSemitoneByStringFromPointers();
       } else if (inBowzone(y)){
         showDot(e.pointerId, x, y, true);
         startBow(e.pointerId, x);
@@ -470,26 +438,29 @@
 
       if (fingerPointers.has(e.pointerId)){
         if (inFingerboard(y)){
-          fingerPointers.set(e.pointerId, { x, y });
+          const prev = fingerPointers.get(e.pointerId);
+          // Keep string assignment stable once down (feels more instrument-like)
+          fingerPointers.set(e.pointerId, { stringIndex: prev.stringIndex, x, yInFingerboard: y });
           showDot(e.pointerId, x, y, false);
         } else {
           fingerPointers.delete(e.pointerId);
           removeDot(e.pointerId);
         }
-        updateCurrentSemitoneFromPointers();
+        updateSemitoneByStringFromPointers();
       }
 
       if (bowPointers.has(e.pointerId)){
+        if (!inBowzone(y)){
+          removeDot(e.pointerId);
+          stopBow(e.pointerId);
+          return;
+        }
         showDot(e.pointerId, x, y, true);
         const v = bowPointers.get(e.pointerId);
-        const freq = v.baseFreq * semitoneToRatio(currentSemitone);
+        const semi = semitoneByString[v.stringIndex] || 0;
+        const freq = v.baseFreq * semitoneToRatio(semi);
         v.voice.setFreq(freq);
         v.freq = freq;
-
-        const s = STRINGS[v.stringIndex];
-        stringInfoEl.textContent = `${s.name} string`;
-        noteInfoEl.textContent = noteNameFromMidi(v.baseMidi + currentSemitone);
-        freqInfoEl.textContent = freq.toFixed(2);
       }
     }
 
@@ -497,7 +468,7 @@
       if (fingerPointers.has(e.pointerId)){
         fingerPointers.delete(e.pointerId);
         removeDot(e.pointerId);
-        updateCurrentSemitoneFromPointers();
+        updateSemitoneByStringFromPointers();
       }
       if (bowPointers.has(e.pointerId)){
         removeDot(e.pointerId);
@@ -521,8 +492,7 @@
       for (const id of [...bowPointers.keys()]) stopBow(id);
       fingerPointers.clear();
       for (const id of [...touchDots.keys()]) removeDot(id);
-      currentSemitone = 0;
-      fretInfoEl.textContent = "0";
+      for (let s = 0; s < semitoneByString.length; s++) semitoneByString[s] = 0;
       show(home);
     });
 
@@ -535,7 +505,6 @@
       if (viola.classList.contains("active")) computeLayout();
     });
 
-    phoneNameEl.textContent = PHONE_PROFILE.name;
     computeLayout();
   </script>
 </body>
