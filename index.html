@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Phone Viola</title>
+  <style>
+    :root{
+      --bg:#0b0c10;
+      --fg:#e9eef7;
+      --muted:#9aa6b2;
+      --string-top:#8b94a1;   /* light grey */
+      --string-bow:#111111;   /* black */
+      --fret:#2b3240;
+      --accent:#6ee7ff;
+    }
+    *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+    html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--fg); }
+    button{ font:inherit; }
+    .screen{ position:fixed; inset:0; display:none; }
+    .screen.active{ display:block; }
+    #home{
+      display:flex; flex-direction:column; gap:16px;
+      padding:24px;
+    }
+    #home h1{ margin:0; font-size:24px; }
+    #home p{ margin:0; color:var(--muted); line-height:1.35; }
+    .phone-grid{ display:flex; gap:12px; margin-top:8px; }
+    .phone-card{
+      flex:1;
+      background:#121420;
+      border:1px solid #1d2233;
+      border-radius:14px;
+      padding:16px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .phone-card strong{ font-size:16px; }
+    .phone-card small{ color:var(--muted); }
+    .primary{
+      margin-top:8px;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid #2b3240;
+      background:#151a2a;
+      color:var(--fg);
+    }
+    .primary:active{ transform: translateY(1px); }
+    #viola{
+      overflow:hidden;
+      touch-action:none;
+      user-select:none;
+    }
+    #hud{
+      position:absolute;
+      left:12px; right:12px; top:12px;
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      justify-content:space-between;
+      pointer-events:none;
+    }
+    #hud .pill{
+      pointer-events:none;
+      background: rgba(18,20,32,.75);
+      border:1px solid rgba(43,50,64,.9);
+      backdrop-filter: blur(10px);
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:12px;
+      color: var(--muted);
+      line-height:1.25;
+      min-width: 160px;
+    }
+    #hud .pill b{ color: var(--fg); font-weight:600; }
+    #hud .right{ text-align:right; min-width: 190px; }
+    #backBtn{
+      position:absolute;
+      left:12px; bottom:12px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(43,50,64,.9);
+      background: rgba(18,20,32,.75);
+      color: var(--fg);
+      backdrop-filter: blur(10px);
+    }
+    #playfield{
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(1200px 600px at 50% -200px, rgba(110,231,255,0.10), transparent 60%),
+        radial-gradient(900px 500px at 20% 30%, rgba(120,120,255,0.06), transparent 60%),
+        radial-gradient(900px 500px at 80% 60%, rgba(255,120,220,0.05), transparent 60%),
+        #0b0c10;
+    }
+    #fingerboard, #bowzone{
+      position:absolute;
+      left:0; right:0;
+    }
+    .string{
+      position:absolute;
+      top:0; bottom:0;
+      width:3px;
+      border-radius:2px;
+      background: linear-gradient(to bottom,
+        var(--string-top) 0%,
+        var(--string-top) 80%,
+        var(--string-bow) 80%,
+        var(--string-bow) 100%
+      );
+      opacity:.95;
+    }
+    .fret{
+      position:absolute;
+      left:0; right:0;
+      height:2px;
+      background: var(--fret);
+      opacity:.9;
+    }
+    .nut{
+      background: rgba(110,231,255,0.35);
+      opacity:1;
+    }
+    .touch-dot{
+      position:absolute;
+      width:14px; height:14px;
+      border-radius:999px;
+      background: rgba(110,231,255,0.9);
+      box-shadow: 0 0 0 4px rgba(110,231,255,0.18);
+      transform: translate(-50%,-50%);
+      pointer-events:none;
+    }
+    .touch-dot.bow{
+      background: rgba(255,255,255,0.9);
+      box-shadow: 0 0 0 4px rgba(255,255,255,0.14);
+    }
+  </style>
+</head>
+<body>
+  <div id="home" class="screen active">
+    <h1>Phone Viola</h1>
+    <p>Select your phone, then play by holding a finger on the upper 80% (choose a fret) and touching a string in the bottom 20% (bow zone) to sound it.</p>
+
+    <div class="phone-grid">
+      <div class="phone-card">
+        <strong>Samsung S24 Ultra</strong>
+        <small>Only supported option for now</small>
+        <button id="startBtn" class="primary">Start viola</button>
+      </div>
+    </div>
+
+    <p style="margin-top:auto;color:var(--muted);font-size:12px">
+      Note: exact physical DPI/model detection is unreliable on the web; this demo uses an approximate S24 Ultra profile and scales the fret spacing to your current viewport.
+    </p>
+  </div>
+
+  <div id="viola" class="screen">
+    <div id="playfield"></div>
+
+    <div id="hud">
+      <div class="pill">
+        <div><b id="phoneName">Samsung S24 Ultra</b></div>
+        <div>Fingerboard: <b id="fbInfo">—</b></div>
+        <div>Fret (semitones): <b id="fretInfo">0</b></div>
+      </div>
+      <div class="pill right">
+        <div>String: <b id="stringInfo">—</b></div>
+        <div>Note: <b id="noteInfo">—</b></div>
+        <div>Freq: <b id="freqInfo">—</b> Hz</div>
+      </div>
+    </div>
+
+    <button id="backBtn">Back</button>
+
+    <div id="fingerboard"></div>
+    <div id="bowzone"></div>
+  </div>
+
+  <script>
+    // Phone profile used for "calibration" (approx published physical dimensions for S24 Ultra).
+    const PHONE_PROFILE = {
+      name: "Samsung S24 Ultra",
+      physical: { heightMm: 162.3, widthMm: 79.0 },
+    };
+
+    // Typical viola vibrating string length ~356mm (varies by instrument).
+    const VIOLA_SCALE_LENGTH_MM = 356;
+
+    // Requested fret pattern: whole, whole, half, whole steps => semitone offsets.
+    // Open (0) then +2, +4, +5, +7 semitones.
+    const SEMITONES = [0, 2, 4, 5, 7];
+
+    // Standard viola tuning: C3, G3, D4, A4
+    const STRINGS = [
+      { name: "C", midi: 48, freq: 130.8128 },
+      { name: "G", midi: 55, freq: 195.9977 },
+      { name: "D", midi: 62, freq: 293.6648 },
+      { name: "A", midi: 69, freq: 440.0000 },
+    ];
+
+    const $ = (id) => document.getElementById(id);
+    const home = $("home");
+    const viola = $("viola");
+    const startBtn = $("startBtn");
+    const backBtn = $("backBtn");
+    const fingerboardEl = $("fingerboard");
+    const bowzoneEl = $("bowzone");
+
+    const phoneNameEl = $("phoneName");
+    const fbInfoEl = $("fbInfo");
+    const fretInfoEl = $("fretInfo");
+    const stringInfoEl = $("stringInfo");
+    const noteInfoEl = $("noteInfo");
+    const freqInfoEl = $("freqInfo");
+
+    let layout = null;
+    let fretYs = [];
+
+    // Track fingerboard pointers (upper 80%): choose the "furthest down" press (max y).
+    const fingerPointers = new Map();
+    let currentSemitone = 0;
+
+    // Track bow pointers (bottom 20%): each pointer can start a note on a string.
+    const bowPointers = new Map();
+
+    let audioCtx = null;
+
+    function ensureAudio(){
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume().catch(()=>{});
+    }
+
+    function semitoneToRatio(semi){ return Math.pow(2, semi / 12); }
+
+    function noteNameFromMidi(m){
+      const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+      const name = names[m % 12];
+      const oct = Math.floor(m / 12) - 1;
+      return `${name}${oct}`;
+    }
+
+    // Nut-to-finger distance for semitone n:
+    // d = L - L / 2^(n/12)
+    function distanceFromNutMm(nSemi, Lmm){
+      return Lmm - (Lmm / Math.pow(2, nSemi / 12));
+    }
+
+    function makeVoice(freq){
+      ensureAudio();
+      const now = audioCtx.currentTime;
+
+      const osc = audioCtx.createOscillator();
+      osc.type = "sawtooth";
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1400, now);
+      filter.Q.setValueAtTime(0.7, now);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+
+      // subtle movement (not full tremolo implementation)
+      const lfo = audioCtx.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.setValueAtTime(5.0, now);
+
+      const lfoGain = audioCtx.createGain();
+      lfoGain.gain.setValueAtTime(3.0, now); // Hz deviation
+      lfo.connect(lfoGain).connect(osc.frequency);
+
+      osc.connect(filter).connect(gain).connect(audioCtx.destination);
+      osc.frequency.setValueAtTime(freq, now);
+
+      gain.gain.exponentialRampToValueAtTime(0.20, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.12);
+
+      osc.start(now);
+      lfo.start(now);
+
+      return {
+        osc, lfo, gain,
+        setFreq(nextFreq){
+          const t = audioCtx.currentTime;
+          this.osc.frequency.setTargetAtTime(nextFreq, t, 0.01);
+        },
+        stop(){
+          const t = audioCtx.currentTime;
+          this.gain.gain.cancelScheduledValues(t);
+          this.gain.gain.setTargetAtTime(0.0001, t, 0.03);
+          try { this.osc.stop(t + 0.12); } catch {}
+          try { this.lfo.stop(t + 0.12); } catch {}
+        }
+      };
+    }
+
+    function computeLayout(){
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const fingerboardH = Math.floor(h * 0.80);
+      const bowH = h - fingerboardH;
+
+      // Approx px-per-mm based on selected phone profile.
+      const pxPerMm = h / PHONE_PROFILE.physical.heightMm;
+      const availableFingerboardMm = fingerboardH / pxPerMm;
+      const scaleFactor = Math.min(1, availableFingerboardMm / VIOLA_SCALE_LENGTH_MM);
+      const effectiveScaleMm = VIOLA_SCALE_LENGTH_MM * scaleFactor;
+
+      fretYs = SEMITONES.map(semi => distanceFromNutMm(semi, effectiveScaleMm) * pxPerMm);
+
+      const margin = Math.max(22, Math.floor(w * 0.10));
+      const usableW = w - margin * 2;
+      const xs = [0,1,2,3].map(i => margin + (usableW * (i / 3)));
+
+      layout = { w, h, fingerboardH, bowH, pxPerMm, effectiveScaleMm, xs };
+
+      fingerboardEl.style.top = "0px";
+      fingerboardEl.style.height = fingerboardH + "px";
+      bowzoneEl.style.top = fingerboardH + "px";
+      bowzoneEl.style.height = bowH + "px";
+
+      drawScene();
+
+      fbInfoEl.textContent = `${Math.round(effectiveScaleMm)}mm scaled to ${fingerboardH}px`;
+      phoneNameEl.textContent = PHONE_PROFILE.name;
+    }
+
+    function drawScene(){
+      fingerboardEl.innerHTML = "";
+      bowzoneEl.innerHTML = "";
+
+      const makeString = (xPx) => {
+        const s = document.createElement("div");
+        s.className = "string";
+        s.style.left = `${xPx - 1}px`;
+        return s;
+      };
+
+      for (const x of layout.xs){
+        fingerboardEl.appendChild(makeString(x));
+        bowzoneEl.appendChild(makeString(x));
+      }
+
+      for (let i = 0; i < fretYs.length; i++){
+        const y = fretYs[i];
+        const f = document.createElement("div");
+        f.className = "fret" + (i === 0 ? " nut" : "");
+        f.style.top = `${Math.max(0, y - 1)}px`;
+        fingerboardEl.appendChild(f);
+      }
+    }
+
+    function nearestStringIndex(x){
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < layout.xs.length; i++){
+        const d = Math.abs(x - layout.xs[i]);
+        if (d < bestD){ bestD = d; best = i; }
+      }
+      return best;
+    }
+
+    function nearestSemitoneForYInFingerboard(yInFingerboard){
+      let bestIdx = 0, bestD = Infinity;
+      for (let i = 0; i < fretYs.length; i++){
+        const d = Math.abs(yInFingerboard - fretYs[i]);
+        if (d < bestD){ bestD = d; bestIdx = i; }
+      }
+      return SEMITONES[bestIdx];
+    }
+
+    function updateCurrentSemitoneFromPointers(){
+      if (fingerPointers.size === 0){
+        currentSemitone = 0;
+        fretInfoEl.textContent = String(currentSemitone);
+        return;
+      }
+      let maxY = -Infinity;
+      for (const p of fingerPointers.values()){
+        if (p.y > maxY) maxY = p.y;
+      }
+      currentSemitone = nearestSemitoneForYInFingerboard(maxY);
+      fretInfoEl.textContent = String(currentSemitone);
+
+      for (const v of bowPointers.values()){
+        const freq = v.baseFreq * semitoneToRatio(currentSemitone);
+        v.voice.setFreq(freq);
+        v.freq = freq;
+        noteInfoEl.textContent = noteNameFromMidi(v.baseMidi + currentSemitone);
+        freqInfoEl.textContent = freq.toFixed(2);
+      }
+    }
+
+    const touchDots = new Map();
+    function showDot(pointerId, x, y, isBow){
+      let el = touchDots.get(pointerId);
+      if (!el){
+        el = document.createElement("div");
+        el.className = "touch-dot" + (isBow ? " bow" : "");
+        viola.appendChild(el);
+        touchDots.set(pointerId, el);
+      }
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+    }
+    function removeDot(pointerId){
+      const el = touchDots.get(pointerId);
+      if (el){ el.remove(); touchDots.delete(pointerId); }
+    }
+
+    function inFingerboard(y){ return y >= 0 && y < layout.fingerboardH; }
+    function inBowzone(y){ return y >= layout.fingerboardH && y <= layout.h; }
+
+    function startBow(pointerId, x){
+      const sIdx = nearestStringIndex(x);
+      const s = STRINGS[sIdx];
+
+      const baseFreq = s.freq;
+      const baseMidi = s.midi;
+      const freq = baseFreq * semitoneToRatio(currentSemitone);
+      const voice = makeVoice(freq);
+
+      bowPointers.set(pointerId, { stringIndex: sIdx, baseFreq, baseMidi, voice, freq });
+
+      stringInfoEl.textContent = `${s.name} string`;
+      noteInfoEl.textContent = noteNameFromMidi(baseMidi + currentSemitone);
+      freqInfoEl.textContent = freq.toFixed(2);
+    }
+
+    function stopBow(pointerId){
+      const v = bowPointers.get(pointerId);
+      if (!v) return;
+      v.voice.stop();
+      bowPointers.delete(pointerId);
+
+      if (bowPointers.size === 0){
+        stringInfoEl.textContent = "—";
+        noteInfoEl.textContent = "—";
+        freqInfoEl.textContent = "—";
+      } else {
+        const any = bowPointers.values().next().value;
+        const s = STRINGS[any.stringIndex];
+        stringInfoEl.textContent = `${s.name} string`;
+        noteInfoEl.textContent = noteNameFromMidi(any.baseMidi + currentSemitone);
+        freqInfoEl.textContent = any.freq.toFixed(2);
+      }
+    }
+
+    function handlePointerDown(e){
+      e.preventDefault();
+      ensureAudio();
+
+      const x = e.clientX;
+      const y = e.clientY;
+
+      if (inFingerboard(y)){
+        fingerPointers.set(e.pointerId, { x, y });
+        showDot(e.pointerId, x, y, false);
+        updateCurrentSemitoneFromPointers();
+      } else if (inBowzone(y)){
+        showDot(e.pointerId, x, y, true);
+        startBow(e.pointerId, x);
+      }
+      viola.setPointerCapture?.(e.pointerId);
+    }
+
+    function handlePointerMove(e){
+      const x = e.clientX;
+      const y = e.clientY;
+
+      if (fingerPointers.has(e.pointerId)){
+        if (inFingerboard(y)){
+          fingerPointers.set(e.pointerId, { x, y });
+          showDot(e.pointerId, x, y, false);
+        } else {
+          fingerPointers.delete(e.pointerId);
+          removeDot(e.pointerId);
+        }
+        updateCurrentSemitoneFromPointers();
+      }
+
+      if (bowPointers.has(e.pointerId)){
+        showDot(e.pointerId, x, y, true);
+        const v = bowPointers.get(e.pointerId);
+        const freq = v.baseFreq * semitoneToRatio(currentSemitone);
+        v.voice.setFreq(freq);
+        v.freq = freq;
+
+        const s = STRINGS[v.stringIndex];
+        stringInfoEl.textContent = `${s.name} string`;
+        noteInfoEl.textContent = noteNameFromMidi(v.baseMidi + currentSemitone);
+        freqInfoEl.textContent = freq.toFixed(2);
+      }
+    }
+
+    function handlePointerUpOrCancel(e){
+      if (fingerPointers.has(e.pointerId)){
+        fingerPointers.delete(e.pointerId);
+        removeDot(e.pointerId);
+        updateCurrentSemitoneFromPointers();
+      }
+      if (bowPointers.has(e.pointerId)){
+        removeDot(e.pointerId);
+        stopBow(e.pointerId);
+      }
+    }
+
+    function show(screen){
+      home.classList.remove("active");
+      viola.classList.remove("active");
+      screen.classList.add("active");
+    }
+
+    startBtn.addEventListener("click", () => {
+      show(viola);
+      computeLayout();
+      ensureAudio();
+    });
+
+    backBtn.addEventListener("click", () => {
+      for (const id of [...bowPointers.keys()]) stopBow(id);
+      fingerPointers.clear();
+      for (const id of [...touchDots.keys()]) removeDot(id);
+      currentSemitone = 0;
+      fretInfoEl.textContent = "0";
+      show(home);
+    });
+
+    viola.addEventListener("pointerdown", handlePointerDown, { passive:false });
+    viola.addEventListener("pointermove", handlePointerMove, { passive:false });
+    viola.addEventListener("pointerup", handlePointerUpOrCancel, { passive:false });
+    viola.addEventListener("pointercancel", handlePointerUpOrCancel, { passive:false });
+
+    window.addEventListener("resize", () => {
+      if (viola.classList.contains("active")) computeLayout();
+    });
+
+    phoneNameEl.textContent = PHONE_PROFILE.name;
+    computeLayout();
+  </script>
+</body>
+</html>
+
+

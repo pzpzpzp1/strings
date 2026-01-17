@@ -14,3 +14,7 @@ Wherever the user presses should be mapped to the closest string location at hal
 Make sure to look up the correct spacings for a viola so the digital interface is correct. 
 
 The entire interface should be controlled by a single html file
+
+### Running
+- Open `index.html` in a mobile browser (recommended) or desktop browser.
+- For audio to work on mobile, you typically must tap once to start (the app does this when you press “Start viola”).
