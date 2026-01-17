@@ -52,16 +52,6 @@
       touch-action:none;
       user-select:none;
     }
-    #backBtn{
-      position:absolute;
-      left:12px; bottom:12px;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid rgba(43,50,64,.9);
-      background: rgba(18,20,32,.75);
-      color: var(--fg);
-      backdrop-filter: blur(10px);
-    }
     #playfield{
       position:absolute;
       inset:0;
@@ -135,8 +125,6 @@
   <div id="viola" class="screen">
     <div id="playfield"></div>
 
-    <button id="backBtn">Back</button>
-
     <div id="fingerboard"></div>
     <div id="bowzone"></div>
   </div>
@@ -172,7 +160,6 @@
     const home = $("home");
     const viola = $("viola");
     const startBtn = $("startBtn");
-    const backBtn = $("backBtn");
     const fingerboardEl = $("fingerboard");
     const bowzoneEl = $("bowzone");
 
@@ -294,11 +281,15 @@
         .filter(semi => semi <= maxSemitone)
         .map(semi => distanceFromNutMm(semi, effectiveScaleMm) * cssPxPerMm);
 
-      const margin = Math.max(22, Math.floor(w * 0.10));
-      const usableW = w - margin * 2;
-      const xs = [0,1,2,3].map(i => margin + (usableW * (i / 3)));
+      // Place strings within the right 75% of the screen for easier reach.
+      const regionLeft = Math.floor(w * 0.25);
+      const regionRight = w;
+      const regionW = regionRight - regionLeft;
+      const margin = Math.max(18, Math.floor(regionW * 0.08));
+      const usableW = Math.max(1, regionW - margin * 2);
+      const xs = [0,1,2,3].map(i => regionLeft + margin + (usableW * (i / 3)));
 
-      layout = { w, h, fingerboardH, bowH, dpr, cssPxPerMm, fingerboardMm, effectiveScaleMm, maxSemitone, xs };
+      layout = { w, h, fingerboardH, bowH, dpr, cssPxPerMm, fingerboardMm, effectiveScaleMm, maxSemitone, xs, regionLeft, regionRight };
 
       fingerboardEl.style.top = "0px";
       fingerboardEl.style.height = fingerboardH + "px";
@@ -460,6 +451,13 @@
         }
         showDot(e.pointerId, x, y, true);
         const v = bowPointers.get(e.pointerId);
+        const nextStringIndex = nearestStringIndex(x);
+        if (nextStringIndex !== v.stringIndex){
+          const s = STRINGS[nextStringIndex];
+          v.stringIndex = nextStringIndex;
+          v.baseFreq = s.freq;
+          v.baseMidi = s.midi;
+        }
         const semi = semitoneByString[v.stringIndex] || 0;
         const freq = v.baseFreq * semitoneToRatio(semi);
         v.voice.setFreq(freq);
@@ -489,14 +487,6 @@
       show(viola);
       computeLayout();
       ensureAudio();
-    });
-
-    backBtn.addEventListener("click", () => {
-      for (const id of [...bowPointers.keys()]) stopBow(id);
-      fingerPointers.clear();
-      for (const id of [...touchDots.keys()]) removeDot(id);
-      for (let s = 0; s < semitoneByString.length; s++) semitoneByString[s] = 0;
-      show(home);
     });
 
     viola.addEventListener("pointerdown", handlePointerDown, { passive:false });
